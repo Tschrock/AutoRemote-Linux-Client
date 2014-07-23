@@ -1,0 +1,141 @@
+#!/bin/bash
+
+
+handle_message() {
+
+	if [[ "$1" == "open-url=:|:="* || "$1" == "http://" || "$1" == "https://" ]]; then
+
+		URL=$(echo "$1" | grep -o -P '( ?)http(s?)://[a-zA-Z0-9-._~:/?#\[\]@!$&'"'"'()*+.;=]+\.[a-zA-Z0-9-._~:/?#\[\]@!$&'"'"'()*+.;=]+')
+
+		echo "$1"
+		echo "$URL"
+
+		x-www-browser "$URL" &
+
+	fi
+
+	if [[ "$1" == "open-file=:|:="* ]]; then
+
+                FILE=$(echo "$1" | sed "s/.*=:|:=//")
+
+		wait_then_open "$FILE" &
+
+        fi
+
+	if [[ "$1" == "show-notification=:|:="* ]]; then
+
+		NOTEPARAMS=$(echo "$1" | sed "s/.*=:|:=//")
+		parse_message_args "$NOTEPARAMS"
+
+		if [[ "${ARGARR[0]}" == "notification" ]]; then
+
+			notify-send -u normal -t 8 "Notification from ${ARGARR[1]}" "${ARGARR[2]}"
+
+                elif [[ "${ARGARR[0]}" == "call" ]]; then
+
+			notify-send -u critical -t 24 "Incoming Call on ${ARGARR[1]}" "${ARGARR[2]}"
+
+                elif [[ "${ARGARR[0]}" == "text" ]]; then
+
+			notify-send -u normal -t 16 "New sms message on ${ARGARR[1]}" "${ARGARR[2]}"
+
+                elif [[ "${ARGARR[0]}" == "battery" ]]; then
+
+			notify-send -u low -t 16 "${ARGARR[1]}:" "${ARGARR[2]}"
+
+                elif [[ "${ARGARR[0]}" == "other" ]]; then
+
+			notify-send -u normal -t 16 "${ARGARR[1]}:" "${ARGARR[2]}"
+
+		else
+
+			notify-send -u normal -t 16 "${ARGARR[*]}"
+
+		fi
+	fi
+
+	echo "$1"
+
+}
+
+
+
+
+
+wait_then_open() {
+
+	# This doesn't work... :(
+	TIMEOUT=120
+	TIMEOUTCOUNT=0
+	while [[ ! -f "$1" && $TIMEOUTCOUNT < $TIMEOUT ]]; do
+		let TIMEOUTCOUNT++
+		#echo $TIMEOUTCOUNT
+		sleep 2s
+	done
+
+	if [[ -f "$1" ]]; then
+		xdg-open "$1"
+	else
+		echo "Error: Could not open '$1'; File doesn't exist"
+	fi
+
+}
+
+parse_message_args() {
+
+	MESSAGE="$1"
+
+	#First get rid of command
+	ARGSTRING=$(echo "$MESSAGE" | sed "s/.*=:|:=//")
+
+	#Replace ' ' with an identifier and '}-&-{' with ' ' so we can  do field seperation stuffs
+	ARGSTRING=$(echo "$ARGSTRING" | sed -e "s/ /#H#H#H/g" -e "s/}-&-{/ /g")
+	IFS=' ' ARGARR=($ARGSTRING)
+
+	#Replace the identifier with a space as we don't need it anymore
+	total=${#ARGARR[*]}
+	for (( j=0; j<=$(( $total -1 )); j++ )); do
+		ARGARR[$j]="$(echo ${ARGARR[$j]} | sed 's/#H#H#H/ /g')"
+	done
+
+}
+LOCKFILE="/var/lock/$(basename $0)"
+
+. bash-lock-functions
+
+exlock_now || {
+	echo "I'm already running!"
+	exit 1
+}
+
+
+if [[ "$1" == "--daemon" ]]; then
+	echo "Starting autoremote-handler in the background."
+	unlock
+	(nohup autoremote-handler 0<&- &>/dev/null &) &
+	exit
+fi
+
+MESSAGEFILE="/tmp/autoremote-messages"
+
+pipe=$MESSAGEFILE
+
+trap "rm -f $pipe" EXIT
+
+if [[ ! -p $pipe ]]; then
+	rm -f $pipe
+	mkfifo -m 777 $pipe || {
+		echo "Couldn't make pipe!"
+		exit 1
+	}
+fi
+
+while true
+do
+    if read line <$pipe; then
+        if [[ "$line" == 'quit' ]]; then
+            break
+        fi
+        handle_message "$line"
+    fi
+done

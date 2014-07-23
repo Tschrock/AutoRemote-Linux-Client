@@ -1,0 +1,83 @@
+#!/bin/bash
+
+MESSAGEFILE="/tmp/autoremote-messages"
+
+handle_command(){
+
+	pipe=$MESSAGEFILE
+
+	if [[ ! -p $pipe ]]; then
+	        echo "Couldn't connect to pipe! Is autoremote-handler running?"
+		exit 1
+	fi
+
+	echo "$1" > $pipe
+
+}
+
+AR_HOST=$(who am i | sed -r "s/.*\((.*)\).*/\\1/")
+AR_IP=$(echo $SSH_CLIENT | sed 's/ .*//')
+
+AR_COMMAND=""
+
+while getopts ":c:" opt; do
+  case $opt in
+    c)
+      AR_COMMAND="$OPTARG"
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      exit 1
+      ;;
+  esac
+done
+
+
+if [[ "$AR_COMMAND" == "" ]]; then
+
+	echo ""# | tee -a /home/autoremote/commandinput.txt
+
+	echo "#New Connection from $AR_IP ($AR_HOST)"# | tee -a /home/autoremote/commandinput.txt
+
+	echo "#Connection args: $@"# | tee -a /home/autoremote/commandinput.txt
+
+	echo ""# | tee -a /home/autoremote/commandinput.txt
+
+
+	AR_INLOOP=true
+
+	while $AR_INLOOP; do
+
+		read -p "autoremote-send-message$" AR_INPUT
+
+		if [[ "$AR_INPUT" == "exit" ]]; then
+			AR_INLOOP=false
+		else
+                	#echo "$AR_IP: $AR_INPUT" >> /home/autoremote/commandinput.txt
+                	handle_command "$AR_INPUT"
+		fi
+
+	done
+
+
+	echo ""# | tee -a /home/autoremote/commandinput.txt
+
+	echo "#Connection closed: $AR_IP"# | tee -a /home/autoremote/commandinput.txt
+
+	echo ""# | tee -a /home/autoremote/commandinput.txt
+
+else
+
+	#echo "Connection from $AR_IP ($AR_HOST) ran '"$AR_COMMAND"'" >> /home/autoremote/commandinput.txt
+	handle_command "$AR_COMMAND"
+
+fi
+
+
+exit
+
+
